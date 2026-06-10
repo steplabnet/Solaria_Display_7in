@@ -1,0 +1,7 @@
+{
+  "moduleId": 14,
+  "command": "ping",
+  "action": "initialize",
+  "btns": ["lebel1", "lable2", "label3"],
+  "labels": [""]
+}

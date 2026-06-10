@@ -1,0 +1,81 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.0.3 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="29.0.3">
+  <diagram name="Pagina-1" id="jtHwbKBXE4M1ae3bfxD9">
+    <mxGraphModel dx="1090" dy="825" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="mriTeTyoU4kt-KF3kK69-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-1" target="mriTeTyoU4kt-KF3kK69-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-1" value="SERVIZIO check_vars" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="150" y="70" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-2" target="mriTeTyoU4kt-KF3kK69-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-15" value="YES" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="mriTeTyoU4kt-KF3kK69-7">
+          <mxGeometry x="-0.1238" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-2" value="esiste un file&amp;nbsp;&lt;div&gt;vars&amp;lt;&amp;gt;.json&lt;/div&gt;" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="60" width="170" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-4" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-2" target="mriTeTyoU4kt-KF3kK69-1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="530" y="450" as="sourcePoint" />
+            <mxPoint x="580" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="465" y="200" />
+              <mxPoint x="210" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-5" value="NO" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="mriTeTyoU4kt-KF3kK69-4">
+          <mxGeometry x="-0.0182" y="-3" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-6" target="mriTeTyoU4kt-KF3kK69-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-6" value="Confronta con costanti&amp;lt;&amp;gt;.json" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="655" y="70" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-8" target="mriTeTyoU4kt-KF3kK69-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-8" value="diverso ?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="675" y="200" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-10" value="aggirona costanti&amp;lt;&amp;gt;.json" style="whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="815" y="210" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-12" value="SERVIZIO&lt;div&gt;display2central&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="50" y="450" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-13" target="mriTeTyoU4kt-KF3kK69-14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-13" value="action:setpoint" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="440" width="210" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-14" value="crea var&amp;lt;&amp;gt;.json&lt;div&gt;&amp;nbsp;basato sulla configurazione di /var/www/html/data/display&amp;lt;&amp;gt;.json&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="340" y="310" width="250" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-17" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-12" target="mriTeTyoU4kt-KF3kK69-13">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="530" y="450" as="sourcePoint" />
+            <mxPoint x="580" y="400" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="mriTeTyoU4kt-KF3kK69-18" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" edge="1" parent="1" source="mriTeTyoU4kt-KF3kK69-14" target="mriTeTyoU4kt-KF3kK69-2">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="530" y="450" as="sourcePoint" />
+            <mxPoint x="580" y="400" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ESP32-S3 Display — Setup</title>
+    <style>
+      :root {
+        --bg: #f6f9ff;
+        --card: #ffffff;
+        --ink: #0f1a2b;
+        --muted: #5e6b85;
+        --primary: #2b6fff;
+        --primary-600: #1f57cc;
+        --ring: #b9d1ff;
+        --ok: #1ea672;
+        --warn: #d9822b;
+        --error: #cf2a2a;
+        --radius: 16px;
+        --shadow: 0 10px 25px rgba(28, 72, 180, 0.12),
+          0 2px 8px rgba(28, 72, 180, 0.08);
+        --input: #edf3ff;
+        --input-border: #d7e4ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
+          Cantarell, "Helvetica Neue", Arial;
+        color: var(--ink);
+        background: linear-gradient(180deg, var(--bg), #eef4ff 40%, #e8f0ff);
+      }
+      .wrap {
+        max-width: 980px;
+        margin: clamp(12px, 5vh, 36px) auto;
+        padding: 0 16px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
+      .title {
+        font-size: clamp(20px, 3.5vw, 30px);
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        color: #0d214f;
+      }
+      .subtitle {
+        color: var(--muted);
+        margin-top: 4px;
+        font-size: 14px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--input-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .card .bar {
+        height: 6px;
+        background: linear-gradient(90deg, var(--primary), #6aa8ff);
+      }
+      .content {
+        display: grid;
+        grid-template-columns: 1.25fr 0.9fr;
+        gap: 22px;
+        padding: 22px;
+      }
+      @media (max-width: 900px) {
+        .content {
+          grid-template-columns: 1fr;
+        }
+      }
+      .panel {
+        padding: 8px;
+      }
+      .group {
+        background: #f9fbff;
+        border: 1px solid var(--input-border);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      .group h3 {
+        margin: 0 0 12px 0;
+        font-size: 15px;
+        color: #103065;
+        letter-spacing: 0.2px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: #103065;
+        margin: 10px 0 6px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      input[type="text"],
+      input[type="password"],
+      input[type="number"] {
+        width: 100%;
+        padding: 12px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--input-border);
+        background: var(--input);
+        outline: none;
+        transition: border 0.18s, box-shadow 0.18s, background 0.18s;
+        font-size: 15px;
+      }
+      input:focus {
+        border-color: var(--primary);
+        background: #fff;
+        box-shadow: 0 0 0 4px var(--ring);
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .inline {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .btns {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        cursor: pointer;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-weight: 700;
+        transition: transform 0.05s ease, box-shadow 0.18s ease,
+          background 0.18s ease;
+      }
+      .primary {
+        background: var(--primary);
+        color: white;
+        box-shadow: 0 8px 16px rgba(43, 111, 255, 0.22);
+      }
+      .primary:active {
+        transform: translateY(1px);
+      }
+      .ghost {
+        background: #eaf2ff;
+        color: #11357b;
+        border: 1px solid var(--input-border);
+      }
+      .danger {
+        background: #ffecec;
+        color: #8f1f1f;
+        border: 1px solid #ffc8c8;
+      }
+      .success {
+        background: #e9fbf4;
+        color: #0e6a4f;
+        border: 1px solid #b8f0da;
+      }
+      .preview {
+        height: 100%;
+        background: #f7faff;
+        border: 1px dashed var(--input-border);
+        border-radius: 12px;
+        padding: 14px;
+        overflow: auto;
+        font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        color: #0b274f;
+        white-space: pre-wrap;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #eaf2ff;
+        color: #114099;
+        border: 1px solid var(--input-border);
+        margin-left: 8px;
+      }
+      .footer {
+        padding: 12px 22px 20px;
+        color: var(--muted);
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        border-top: 1px solid var(--input-border);
+        background: linear-gradient(180deg, #ffffff, #f7fbff);
+      }
+      .switch {
+        position: relative;
+        width: 48px;
+        height: 28px;
+        background: #dbe7ff;
+        border-radius: 999px;
+        transition: background 0.2s;
+        border: 1px solid var(--input-border);
+      }
+      .switch input {
+        display: none;
+      }
+      .switch .dot {
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        top: 2px;
+        left: 2px;
+        background: #fff;
+        border-radius: 50%;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        transition: left 0.2s;
+      }
+      .switch input:checked + .dot {
+        left: 24px;
+      }
+      .switch input:checked ~ .track {
+        background: var(--primary);
+      }
+      .pw-wrap {
+        position: relative;
+      }
+      .toggle-eye {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 12px;
+        color: #325aa8;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        padding: 4px 6px;
+      }
+      .status {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        font-size: 13px;
+        padding: 10px;
+        border-radius: 10px;
+      }
+      .status.ok {
+        display: flex;
+        background: #edf9f3;
+        color: #0e6a4f;
+        border: 1px solid #b8f0da;
+      }
+      .status.err {
+        display: flex;
+        background: #ffefef;
+        color: #8f1f1f;
+        border: 1px solid #ffc8c8;
+      }
+      .spacer {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <div class="title">ESP32-S3 Display • Setup</div>
+          <div class="subtitle">
+            Configure AP & Wi-Fi credentials. Values persist in your browser and
+            export as <code>config.json</code> for your device.
+          </div>
+        </div>
+        <div class="badge">LVGL Panel</div>
+      </header>
+
+      <section class="card">
+        <div class="bar" aria-hidden="true"></div>
+        <div class="content">
+          <!-- Left: Form -->
+          <div class="panel">
+            <form id="cfgForm" autocomplete="off">
+              <div class="group">
+                <h3>Identity</h3>
+                <label for="displayId">Display ID</label>
+                <input
+                  id="displayId"
+                  type="text"
+                  inputmode="numeric"
+                  placeholder="e.g. 101"
+                  required
+                />
+                <div class="hint">
+                  Numeric or short code that identifies this display (used by
+                  the control unit).
+                </div>
+              </div>
+
+              <div class="group">
+                <h3>Access Point (AP)</h3>
+                <div class="row">
+                  <div>
+                    <label for="apSsid">AP SSID</label>
+                    <input
+                      id="apSsid"
+                      type="text"
+                      placeholder="DISPLAYNEW"
+                      required
+                    />
+                  </div>
+                  <div class="pw-wrap">
+                    <label for="apPwd">AP Password</label>
+                    <input
+                      id="apPwd"
+                      type="password"
+                      minlength="8"
+                      placeholder="12345678"
+                      required
+                    />
+                    <button
+                      type="button"
+                      class="toggle-eye"
+                      data-target="apPwd"
+                      aria-label="Toggle password"
+                    >
+                      Show
+                    </button>
+                  </div>
+                </div>
+                <div class="inline">
+                  <label class="inline">Start in AP mode</label>
+                  <label class="switch" title="Start device as an Access Point">
+                    <input id="startAp" type="checkbox" />
+                    <span class="dot"></span>
+                  </label>
+                </div>
+                <div class="hint">
+                  AP mode helps first-time setup. You can disable it once Wi-Fi
+                  is configured.
+                </div>
+              </div>
+
+              <div class="group">
+                <h3>Wi-Fi Station</h3>
+                <div class="row">
+                  <div>
+                    <label for="staSsid">Wi-Fi SSID</label>
+                    <input id="staSsid" type="text" placeholder="YourNetwork" />
+                  </div>
+                  <div class="pw-wrap">
+                    <label for="staPwd">Wi-Fi Password</label>
+                    <input
+                      id="staPwd"
+                      type="password"
+                      minlength="8"
+                      placeholder="12345678"
+                    />
+                    <button
+                      type="button"
+                      class="toggle-eye"
+                      data-target="staPwd"
+                      aria-label="Toggle password"
+                    >
+                      Show
+                    </button>
+                  </div>
+                </div>
+                <div class="hint">
+                  If left empty, the device will rely on AP mode.
+                </div>
+              </div>
+
+              <div class="btns">
+                <button type="button" class="primary" id="downloadBtn">
+                  Download config.json
+                </button>
+                <button type="button" class="ghost" id="saveBtn">
+                  Save to Browser
+                </button>
+                <button type="button" class="danger" id="resetBtn">
+                  Reset to Defaults
+                </button>
+                <button
+                  type="button"
+                  class="success"
+                  id="pingBtn"
+                  title="Optional: POST JSON to device at 192.168.4.1/config"
+                >
+                  Send to 192.168.4.1
+                </button>
+              </div>
+              <div
+                id="status"
+                class="status"
+                role="status"
+                aria-live="polite"
+              ></div>
+            </form>
+          </div>
+
+          <!-- Right: Live JSON Preview -->
+          <div class="panel">
+            <h3 style="margin: 0 0 10px 8px; color: #103065">
+              Preview <span class="badge">config.json</span>
+            </h3>
+            <div id="preview" class="preview" aria-label="Live JSON preview">
+              {}
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <div>
+            Tip: Keep passwords at least 8 characters. AP SSID default is
+            <code>DISPLAYNEW</code>.
+          </div>
+          <div class="spacer"></div>
+          <div>&copy; 2025 • Setup UI</div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const els = {
+        form: document.getElementById("cfgForm"),
+        displayId: document.getElementById("displayId"),
+        apSsid: document.getElementById("apSsid"),
+        apPwd: document.getElementById("apPwd"),
+        staSsid: document.getElementById("staSsid"),
+        staPwd: document.getElementById("staPwd"),
+        startAp: document.getElementById("startAp"),
+        preview: document.getElementById("preview"),
+        downloadBtn: document.getElementById("downloadBtn"),
+        saveBtn: document.getElementById("saveBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+        pingBtn: document.getElementById("pingBtn"),
+        status: document.getElementById("status"),
+      };
+
+      const STORAGE_KEY = "esp32s3_display_setup";
+
+      const defaults = {
+        displayId: "",
+        apSsid: "DISPLAYNEW",
+        apPwd: "12345678",
+        staSsid: "",
+        staPwd: "12345678",
+        startAp: true,
+      };
+
+      function load() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const data = raw ? JSON.parse(raw) : defaults;
+        els.displayId.value = data.displayId ?? "";
+        els.apSsid.value = data.apSsid ?? "DISPLAYNEW";
+        els.apPwd.value = data.apPwd ?? "12345678";
+        els.staSsid.value = data.staSsid ?? "";
+        els.staPwd.value = data.staPwd ?? "12345678";
+        els.startAp.checked = data.startAp ?? true;
+        renderPreview();
+      }
+
+      function gather() {
+        return {
+          displayId: (els.displayId.value || "").trim(),
+          apSsid: (els.apSsid.value || "DISPLAYNEW").trim(),
+          apPwd: els.apPwd.value || "12345678",
+          staSsid: (els.staSsid.value || "").trim(),
+          staPwd: els.staPwd.value || "12345678",
+          startAp: !!els.startAp.checked,
+        };
+      }
+
+      function toDeviceJSON(values) {
+        // JSON used by firmware (includes displayName + displayId, plus Wi-Fi/AP fields)
+        return {
+          displayId: isFinite(+values.displayId)
+            ? +values.displayId
+            : values.displayId,
+          displayName: values.apSsid || "DISPLAYNEW",
+          ap: {
+            ssid: values.apSsid,
+            password: values.apPwd,
+            start: values.startAp,
+          },
+          wifi: {
+            ssid: values.staSsid,
+            password: values.staPwd,
+          },
+        };
+      }
+
+      function renderPreview() {
+        const v = gather();
+        const j = toDeviceJSON(v);
+        els.preview.textContent = JSON.stringify(j, null, 2);
+      }
+
+      function save() {
+        const v = gather();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(v));
+        flash("Saved in your browser.", "ok");
+      }
+
+      function reset() {
+        localStorage.removeItem(STORAGE_KEY);
+        load();
+        flash("Restored defaults.", "ok");
+      }
+
+      function download() {
+        const j = toDeviceJSON(gather());
+        const blob = new Blob([JSON.stringify(j, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement("a"), {
+          href: url,
+          download: "config.json",
+        });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        flash("config.json downloaded.", "ok");
+      }
+
+      async function sendToDevice() {
+        const j = toDeviceJSON(gather());
+        try {
+          const resp = await fetch("http://192.168.4.1/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(j),
+          });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          flash("Sent to device at 192.168.4.1.", "ok");
+        } catch (e) {
+          flash(
+            "Could not reach 192.168.4.1. Connect to device AP first.",
+            "err"
+          );
+        }
+      }
+
+      function flash(msg, type = "ok") {
+        els.status.textContent = msg;
+        els.status.className = "status " + (type === "ok" ? "ok" : "err");
+      }
+
+      // Events
+      document.addEventListener("input", (e) => {
+        if (e.target.closest("#cfgForm")) renderPreview();
+      });
+      els.downloadBtn.addEventListener("click", download);
+      els.saveBtn.addEventListener("click", save);
+      els.resetBtn.addEventListener("click", reset);
+      els.pingBtn.addEventListener("click", sendToDevice);
+
+      // Password show/hide
+      document.querySelectorAll(".toggle-eye").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-target");
+          const el = document.getElementById(id);
+          el.type = el.type === "password" ? "text" : "password";
+          btn.textContent = el.type === "password" ? "Show" : "Hide";
+        });
+      });
+
+      // Basic validation: password length
+      ["apPwd", "staPwd"].forEach((id) => {
+        document.getElementById(id).addEventListener("blur", (e) => {
+          if (e.target.value && e.target.value.length < 8) {
+            flash("Passwords must be at least 8 characters.", "err");
+            e.target.focus();
+          }
+        });
+      });
+
+      load();
+    </script>
+  </body>
+</html>
