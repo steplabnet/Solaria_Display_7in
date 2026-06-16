@@ -4,8 +4,9 @@
 #define DEBUG_ON 1
 #define DEBUG_OFF 0
 
-#define RS485_RX_PIN 16
-#define RS485_TX_PIN 15
+// ESP32-S3-Touch-LCD-7 (per Waveshare 05_RS485 example): MCU RX=GPIO15, TX=GPIO16.
+#define RS485_RX_PIN 15
+#define RS485_TX_PIN 16
 
 // Redefine serial port name
 #define RS485 Serial1
