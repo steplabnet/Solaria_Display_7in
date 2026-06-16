@@ -59,12 +59,15 @@
 #include <math.h>
 
 // --- HARDWARE CONFIGURATION ---
-#ifndef RS485Serial_RX_PIN
-#define RS485Serial_RX_PIN 44
+// RS485 pins for the Waveshare ESP32-S3-Touch-LCD-7: GPIO15 = TXD, GPIO16 = RXD.
+// These names must match the build flags in platformio.ini (RS485_RX_PIN / RS485_TX_PIN).
+// NOTE: GPIO43/44 are the USB UART0 debug pins — never use them for RS485.
+#ifndef RS485_RX_PIN
+#define RS485_RX_PIN 16
 #endif
 
-#ifndef RS485Serial_TX_PIN
-#define RS485Serial_TX_PIN 43
+#ifndef RS485_TX_PIN
+#define RS485_TX_PIN 15
 #endif
 
 #ifndef STATUS_LED_PIN
@@ -110,7 +113,7 @@ bool RS485_transmitting = false;
 bool bootAnswerPending = true;
 static bool varsReceivedFromCentral = false;
 static bool pendingBootReply = false; // set when incoming page is not yet configured
-static int sendPageIdx = 0; // rotates through available pages on each ping response
+static int sendPageIdx = 0;           // rotates through available pages on each ping response
 
 // -------------------------------------------------------------------------
 // PROTOTYPES
@@ -179,6 +182,7 @@ static int getDocPageIndex(const JsonDocument &doc)
 static bool hasMatchingModuleId(const String &rxBuffer)
 {
     JsonDocument filter;
+
     filter["moduleId"] = true;
 
     JsonDocument idDoc;
@@ -677,8 +681,8 @@ static void sendDeviceStatus()
         }
 
         answer["page"] = sendPageIdx + 1;
-        JsonArray varsArr   = answer["vars"].to<JsonArray>();
-        JsonArray btnEnArr  = answer["btnEn"].to<JsonArray>();
+        JsonArray varsArr = answer["vars"].to<JsonArray>();
+        JsonArray btnEnArr = answer["btnEn"].to<JsonArray>();
 
         for (int i = 0; i < 12; i++)
         {
@@ -752,7 +756,7 @@ void TaskSerialPoll(void *parameter)
     // Initialize RS485 serial port
     if (!RS485Serial)
     {
-        RS485Serial.begin(RS485_BAUD_RATE, SERIAL_8N1, RS485Serial_RX_PIN, RS485Serial_TX_PIN);
+        RS485Serial.begin(RS485_BAUD_RATE, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
         Serial.println("[INIT] RS485 Serial Initialized");
     }
 
@@ -771,6 +775,12 @@ void TaskSerialPoll(void *parameter)
         // Check for incoming data
         if (RS485Serial.available())
         {
+            // RAW RX PROBE: prove bytes are physically arriving on GPIO16 (RXD),
+            // independent of newline/JSON/CRC/moduleId. Remove once RS485 works.
+            if (DEBUG_ON)
+                Serial.printf("[RAW RX] %d byte(s) available on RS485\n",
+                              RS485Serial.available());
+
             // Read line until newline
             rxBuffer = RS485Serial.readStringUntil('\n');
             rxBuffer.trim();

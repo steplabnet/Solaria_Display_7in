@@ -4,14 +4,14 @@
 #define DEBUG_ON 1
 #define DEBUG_OFF 0
 
-#define RS485_RX_PIN 43
-#define RS485_TX_PIN 44
+#define RS485_RX_PIN 16
+#define RS485_TX_PIN 15
 
 // Redefine serial port name
 #define RS485 Serial1
 
 #define MAX_LABELS 12 // numero di pulsanti gestiti
-#define MAX_PAGES  10 // numero massimo di configurazioni home
+#define MAX_PAGES 10  // numero massimo di configurazioni home
 
 typedef enum
 {
@@ -48,7 +48,7 @@ extern bool PERFORM_OTA_UPDATE;
 extern bool TRIGGER_RESTART;
 extern bool TRIGGER_COMUNICATION;
 extern bool SELECT_NEXT_PAGE;
-extern int  activePage;
+extern int activePage;
 extern bool pageAvailable[MAX_PAGES];
 #ifdef __cplusplus
 extern String pageLabels[MAX_PAGES][MAX_LABELS];
