@@ -59,15 +59,16 @@
 #include <math.h>
 
 // --- HARDWARE CONFIGURATION ---
-// RS485 pins for the Waveshare ESP32-S3-Touch-LCD-7: GPIO15 = TXD, GPIO16 = RXD.
-// These names must match the build flags in platformio.ini (RS485_RX_PIN / RS485_TX_PIN).
+// RS485 pins for the Waveshare ESP32-S3-Touch-LCD-7 (MCU side, per the official
+// 05_RS485 example): RX = GPIO15, TX = GPIO16. The board silkscreen "TXD15/RXD16"
+// is the transceiver side and is reversed relative to the MCU.
 // NOTE: GPIO43/44 are the USB UART0 debug pins — never use them for RS485.
 #ifndef RS485_RX_PIN
-#define RS485_RX_PIN 16
+#define RS485_RX_PIN 15
 #endif
 
 #ifndef RS485_TX_PIN
-#define RS485_TX_PIN 15
+#define RS485_TX_PIN 16
 #endif
 
 #ifndef STATUS_LED_PIN
