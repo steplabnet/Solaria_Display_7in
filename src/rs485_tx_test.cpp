@@ -23,13 +23,15 @@
 #include <Arduino.h>
 #include <HardwareSerial.h>
 
-// ESP32-S3-Touch-LCD-7 RS485 pins (verified against Waveshare docs):
-//   TXD = GPIO15, RXD = GPIO16. (On the 5" board these are GPIO44/43 instead.)
+// ESP32-S3-Touch-LCD-7 RS485 pins, per Waveshare's official 05_RS485 example:
+//   ESP32 RX = GPIO15, ESP32 TX = GPIO16.
+// NOTE: the docs' silkscreen labels ("TXD15/RXD16") are from the transceiver's
+// side and are the REVERSE of the MCU side. The working example uses RX=15/TX=16.
 #ifndef RS485_TX_PIN
-#define RS485_TX_PIN 15
+#define RS485_TX_PIN 16
 #endif
 #ifndef RS485_RX_PIN
-#define RS485_RX_PIN 16
+#define RS485_RX_PIN 15
 #endif
 
 static constexpr long     BAUD_DEBUG     = 115200;
