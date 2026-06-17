@@ -726,6 +726,7 @@ static void processIncomingSetpoints(const JsonDocument &doc)
  *   "moduleId": 32,
  *   "command": "ping",
  *   "type": "moduloDisplay",
+ *   "dispType": "type7",         // display size ("type7" = 7" board)
  *   "vars": [s0, s1, ..., s11],  // 12 setpoint values
  *   "crc16": "XXXX"              // Auto-calculated
  * }
@@ -742,6 +743,7 @@ static void sendDeviceStatus()
     answer["moduleId"] = DeviceID;
     answer["command"] = "ping";
     answer["type"] = "moduloDisplay";
+    answer["dispType"] = "type7"; // display size identifier ("type7" = 7" board)
 
     if (bootAnswerPending || pendingBootReply)
         answer["answer"] = "boot";
