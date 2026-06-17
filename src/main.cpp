@@ -49,7 +49,7 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 
-#define VERSION "260616g"
+#define VERSION "260616h"
 
 // Log tag for ESP_LOGx macros (compiled in once CORE_DEBUG_LEVEL > 0).
 static const char *TAG = "main";
