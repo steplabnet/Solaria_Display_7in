@@ -115,6 +115,18 @@ esp_lcd_panel_handle_t waveshare_esp32_s3_rgb_lcd_init()
     return panel_handle;
 }
 
+void waveshare_rgb_lcd_deinit()
+{
+    if (panel_handle)
+    {
+        // Stops the RGB GDMA channel and removes the bounce-buffer/VSYNC ISR,
+        // then frees the PSRAM framebuffers. After this no LCD interrupt can
+        // fire during a cache-disabled flash window.
+        esp_lcd_panel_del(panel_handle);
+        panel_handle = NULL;
+    }
+}
+
 /**
  * @brief Display a specific window of an image on the RGB LCD.
  *

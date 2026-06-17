@@ -14,7 +14,8 @@ typedef struct
     String sensorLabel;
     long idRiga;
     String temperature[NUM_SENSORS]; // temperature visualizzate sulla pagina
-    String btnLabel[NUM_SENSORS];
+    String btnLabel[NUM_SENSORS];    // ON-state label (mode 2) / normal label
+    String btnLabelOff[NUM_SENSORS]; // OFF-state label for mode-2 buttons; "" => reuse btnLabel
     float setPoint[NUM_SENSORS];
     String regulatorLabel[NUM_SENSORS];
     int outValue;

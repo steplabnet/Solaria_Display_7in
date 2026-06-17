@@ -7,6 +7,7 @@
 
 #define NUM_BUTTONS 12
 /**/
+String activeBtnLabel(const TYPE_DISPLAY_DATA &display, int i);
 void UpdateBtnLabels(TYPE_DISPLAY_DATA display, String *oldLabels);
 void UpdateBtnTemperatures(TYPE_DISPLAY_DATA display);
 void UpdateBtnLeds(TYPE_DISPLAY_DATA display);

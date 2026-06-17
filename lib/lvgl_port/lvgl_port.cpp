@@ -549,6 +549,19 @@ void lvgl_port_unlock(void)
     xSemaphoreGiveRecursive(lvgl_mux); // Release the mutex
 }
 
+void lvgl_port_stop_rendering(void)
+{
+    if (lvgl_task_handle == NULL) {
+        return;
+    }
+    // Take the mutex first: the LVGL task only holds it while inside
+    // lv_timer_handler(), so once we own it the task is parked at vTaskDelay /
+    // blocked on the mutex — never mid-draw. Suspending it there is safe.
+    lvgl_port_lock(-1);
+    vTaskSuspend(lvgl_task_handle);
+    lvgl_port_unlock();
+}
+
 bool lvgl_port_notify_rgb_vsync(void)
 {
     BaseType_t need_yield = pdFALSE; // Flag to check if a yield is needed

@@ -92,6 +92,16 @@
  */
 esp_lcd_panel_handle_t waveshare_esp32_s3_rgb_lcd_init();
 /**
+ * @brief Tear down the RGB LCD panel, stopping its GDMA transfers and the
+ *        bounce-buffer/VSYNC interrupt.
+ *
+ * Must be called before any operation that disables the CPU cache (WiFi init's
+ * NVS reads, OTA flash writes). While the panel runs, its bounce-buffer ISR
+ * touches PSRAM and flash-resident code; if it fires during a cache-disabled
+ * window the chip panics. After this call the screen goes dark until reboot.
+ */
+void waveshare_rgb_lcd_deinit();
+/**
  * @brief Turn on the LCD backlight.
  */
 void wavesahre_rgb_lcd_bl_on();

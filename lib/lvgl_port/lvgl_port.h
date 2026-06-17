@@ -148,3 +148,13 @@ void lvgl_port_unlock(void);
  *      - false: The tasks don't need to be re-scheduled
  */
 bool lvgl_port_notify_rgb_vsync(void);
+
+/**
+ * @brief Permanently stop the LVGL rendering task.
+ *
+ * Parks the LVGL task outside of lv_timer_handler() (so it is not mid-draw),
+ * then suspends it so it never touches the LCD panel again. Intended to be
+ * called right before tearing down the panel for WiFi/OTA. There is no resume;
+ * the device reboots after the update either way.
+ */
+void lvgl_port_stop_rendering(void);
