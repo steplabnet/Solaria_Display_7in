@@ -27,6 +27,16 @@ void UpdateTempLabelBackgrounds(TYPE_DISPLAY_DATA display)
     }
 }
 
+// Caption a button should currently show. For ON/OFF rows (mode 2) btnLabel is
+// the ON text and btnLabelOff the OFF text; an empty btnLabelOff falls back to
+// btnLabel (single-label behavior). Other modes always use btnLabel.
+String activeBtnLabel(const TYPE_DISPLAY_DATA &display, int i)
+{
+    if (display.mode[i] == 2 && display.btnEn[i] == 0 && display.btnLabelOff[i].length() > 0)
+        return display.btnLabelOff[i];
+    return display.btnLabel[i];
+}
+
 void UpdateBtnLabels(TYPE_DISPLAY_DATA display, String *oldLabels)
 {
     lv_obj_t *labels[12] = {
@@ -37,12 +47,14 @@ void UpdateBtnLabels(TYPE_DISPLAY_DATA display, String *oldLabels)
 
     for (int i = 0; i < 12; i++)
     {
-        // Include mode in cache key so a mode change forces a refresh
-        String cacheKey = display.btnLabel[i] + "|" + String(display.mode[i]);
+        String shown = activeBtnLabel(display, i);
+        // Include mode + btnEn in the cache key so a mode change or an ON/OFF
+        // toggle forces the caption to refresh.
+        String cacheKey = shown + "|" + String(display.mode[i]) + "|" + String(display.btnEn[i]);
         if (cacheKey != oldLabels[i])
         {
             oldLabels[i] = cacheKey;
-            lv_label_set_text(labels[i], display.btnLabel[i].c_str());
+            lv_label_set_text(labels[i], shown.c_str());
         }
     }
 };

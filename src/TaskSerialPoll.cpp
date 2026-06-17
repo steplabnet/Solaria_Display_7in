@@ -63,12 +63,12 @@
 // 05_RS485 example): RX = GPIO15, TX = GPIO16. The board silkscreen "TXD15/RXD16"
 // is the transceiver side and is reversed relative to the MCU.
 // NOTE: GPIO43/44 are the USB UART0 debug pins — never use them for RS485.
-#ifndef RS485_RX_PIN
-#define RS485_RX_PIN 15
+#ifndef RS485Serial_RX_PIN
+#define RS485Serial_RX_PIN 15
 #endif
 
-#ifndef RS485_TX_PIN
-#define RS485_TX_PIN 16
+#ifndef RS485Serial_TX_PIN
+#define RS485Serial_TX_PIN 16
 #endif
 
 #ifndef STATUS_LED_PIN
@@ -94,6 +94,7 @@ extern int16_t DeviceID;
 extern HardwareSerial RS485Serial;
 extern long azzera_counter;
 extern String pageLabels[MAX_PAGES][MAX_LABELS];
+extern String pageLabelsOff[MAX_PAGES][MAX_LABELS];
 extern String pageTemperatures[MAX_PAGES][NUM_SENSORS];
 extern float pageSetPoints[MAX_PAGES][NUM_SENSORS];
 extern String pageRegulatorLabels[MAX_PAGES][NUM_SENSORS];
@@ -114,7 +115,7 @@ bool RS485_transmitting = false;
 bool bootAnswerPending = true;
 static bool varsReceivedFromCentral = false;
 static bool pendingBootReply = false; // set when incoming page is not yet configured
-static int sendPageIdx = 0;           // rotates through available pages on each ping response
+static int sendPageIdx = 0; // rotates through available pages on each ping response
 
 // -------------------------------------------------------------------------
 // PROTOTYPES
@@ -183,7 +184,6 @@ static int getDocPageIndex(const JsonDocument &doc)
 static bool hasMatchingModuleId(const String &rxBuffer)
 {
     JsonDocument filter;
-
     filter["moduleId"] = true;
 
     JsonDocument idDoc;
@@ -356,6 +356,14 @@ static void handleSystemCommands(const JsonDocument &doc)
             else
                 config_otaURL = url + "/" + filename;
 
+            // Defensive: tolerate a duplicated scheme in the incoming url
+            // (e.g. "http://http://host"), which otherwise makes the HTTP
+            // client treat "http" as the hostname and the DNS lookup fails.
+            while (config_otaURL.startsWith("http://http://"))
+                config_otaURL.remove(0, 7); // drop one leading "http://"
+            while (config_otaURL.startsWith("https://https://"))
+                config_otaURL.remove(0, 8); // drop one leading "https://"
+
             Serial.print("[CMD] OTA update requested: ");
             Serial.println(config_otaURL);
             PERFORM_OTA_UPDATE = 1;
@@ -385,6 +393,25 @@ static void handleSystemCommands(const JsonDocument &doc)
 
 static void processIncomingConfig(const JsonDocument &doc)
 {
+    // OFF-state labels for ON/OFF (mode 2) buttons. Parsed before "btns" so a
+    // combined config doc resolves the active caption against fresh OFF labels.
+    const char *labelsOffKey = doc.containsKey("btnsOff") ? "btnsOff" : (doc.containsKey("labelsOff") ? "labelsOff" : nullptr);
+    if (labelsOffKey != nullptr)
+    {
+        int pageIdx = getDocPageIndex(doc);
+        JsonArrayConst labels = doc[labelsOffKey];
+        labelCount = 0;
+        for (String value : labels)
+        {
+            if (labelCount >= MAX_LABELS)
+                break;
+            pageLabelsOff[pageIdx][labelCount] = value;
+            labelCount++;
+        }
+        if (pageIdx == activePage)
+            applyPageConfig(pageIdx);
+    }
+
     const char *labelsKey = doc.containsKey("btns") ? "btns" : (doc.containsKey("label") ? "label" : nullptr);
     if (labelsKey != nullptr)
     {
@@ -416,18 +443,18 @@ static void processIncomingConfig(const JsonDocument &doc)
 
             if (lvgl_port_lock(-1))
             {
-                lv_label_set_text(ui_labelBtn1, display.btnLabel[0].c_str());
-                lv_label_set_text(ui_labelBtn2, display.btnLabel[1].c_str());
-                lv_label_set_text(ui_labelBtn3, display.btnLabel[2].c_str());
-                lv_label_set_text(ui_labelBtn4, display.btnLabel[3].c_str());
-                lv_label_set_text(ui_labelBtn5, display.btnLabel[4].c_str());
-                lv_label_set_text(ui_labelBtn6, display.btnLabel[5].c_str());
-                lv_label_set_text(ui_labelBtn7, display.btnLabel[6].c_str());
-                lv_label_set_text(ui_labelBtn8, display.btnLabel[7].c_str());
-                lv_label_set_text(ui_labelBtn9, display.btnLabel[8].c_str());
-                lv_label_set_text(ui_labelBtn10, display.btnLabel[9].c_str());
-                lv_label_set_text(ui_labelBtn11, display.btnLabel[10].c_str());
-                lv_label_set_text(ui_labeBtn12, display.btnLabel[11].c_str());
+                lv_label_set_text(ui_labelBtn1, activeBtnLabel(display, 0).c_str());
+                lv_label_set_text(ui_labelBtn2, activeBtnLabel(display, 1).c_str());
+                lv_label_set_text(ui_labelBtn3, activeBtnLabel(display, 2).c_str());
+                lv_label_set_text(ui_labelBtn4, activeBtnLabel(display, 3).c_str());
+                lv_label_set_text(ui_labelBtn5, activeBtnLabel(display, 4).c_str());
+                lv_label_set_text(ui_labelBtn6, activeBtnLabel(display, 5).c_str());
+                lv_label_set_text(ui_labelBtn7, activeBtnLabel(display, 6).c_str());
+                lv_label_set_text(ui_labelBtn8, activeBtnLabel(display, 7).c_str());
+                lv_label_set_text(ui_labelBtn9, activeBtnLabel(display, 8).c_str());
+                lv_label_set_text(ui_labelBtn10, activeBtnLabel(display, 9).c_str());
+                lv_label_set_text(ui_labelBtn11, activeBtnLabel(display, 10).c_str());
+                lv_label_set_text(ui_labeBtn12, activeBtnLabel(display, 11).c_str());
                 lvgl_port_unlock();
             }
         }
@@ -682,8 +709,8 @@ static void sendDeviceStatus()
         }
 
         answer["page"] = sendPageIdx + 1;
-        JsonArray varsArr = answer["vars"].to<JsonArray>();
-        JsonArray btnEnArr = answer["btnEn"].to<JsonArray>();
+        JsonArray varsArr   = answer["vars"].to<JsonArray>();
+        JsonArray btnEnArr  = answer["btnEn"].to<JsonArray>();
 
         for (int i = 0; i < 12; i++)
         {
@@ -757,7 +784,7 @@ void TaskSerialPoll(void *parameter)
     // Initialize RS485 serial port
     if (!RS485Serial)
     {
-        RS485Serial.begin(RS485_BAUD_RATE, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
+        RS485Serial.begin(RS485_BAUD_RATE, SERIAL_8N1, RS485Serial_RX_PIN, RS485Serial_TX_PIN);
         Serial.println("[INIT] RS485 Serial Initialized");
     }
 
@@ -766,6 +793,17 @@ void TaskSerialPoll(void *parameter)
 
     for (;;)
     {
+        // Stop handling RS485 while an OTA update is pending/running. The flag
+        // stays set for the whole performOTAUpdate() sequence, so we just idle
+        // here (and drain any incoming bytes) until the device reboots.
+        if (PERFORM_OTA_UPDATE)
+        {
+            while (RS485Serial.available())
+                RS485Serial.read();
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
         // Don't receive while transmitting
         if (RS485_transmitting)
         {
@@ -776,12 +814,6 @@ void TaskSerialPoll(void *parameter)
         // Check for incoming data
         if (RS485Serial.available())
         {
-            // RAW RX PROBE: prove bytes are physically arriving on GPIO16 (RXD),
-            // independent of newline/JSON/CRC/moduleId. Remove once RS485 works.
-            if (DEBUG_ON)
-                Serial.printf("[RAW RX] %d byte(s) available on RS485\n",
-                              RS485Serial.available());
-
             // Read line until newline
             rxBuffer = RS485Serial.readStringUntil('\n');
             rxBuffer.trim();

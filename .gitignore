@@ -8,3 +8,4 @@ SD_card.zip
 doc/
 platformio.ini
 .claude/
+dist/

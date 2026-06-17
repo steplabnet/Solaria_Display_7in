@@ -19,6 +19,9 @@
 #include "globals.h"
 #include "ArduinoJson.h"
 
+// Firmware version — used by the PlatformIO post-build script to name the
+// artifact copied into dist/ (display7_<VERSION>.bin). Bump on each release.
+
 // --- Hardware Drivers ---
 #include "rgb_lcd_port.h"
 #include "gt911.h"
@@ -38,8 +41,17 @@
 
 // --- OTA & Network ---
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
 #include <SD_MMC.h>
+#include <esp_timer.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
+
+#define VERSION "260616e"
+
+// Log tag for ESP_LOGx macros (compiled in once CORE_DEBUG_LEVEL > 0).
+static const char *TAG = "main";
 
 // --- Background Image Descriptors (loaded into PSRAM at startup) ---
 static lv_img_dsc_t home_img_dsc;
@@ -49,28 +61,38 @@ static lv_img_dsc_t wait_img_dsc;
 
 static bool loadBinToImgDsc(const char *sdPath, lv_img_dsc_t *dsc)
 {
-    File f = SD_MMC.open(sdPath, FILE_READ);
-    if (!f) {
-        Serial.printf("loadBinToImgDsc: cannot open %s\n", sdPath);
-        return false;
-    }
-    size_t size = f.size();
-    uint8_t *buf = (uint8_t *)ps_malloc(size);
-    if (!buf) {
-        Serial.printf("loadBinToImgDsc: ps_malloc failed (%u bytes)\n", size);
-        f.close();
-        return false;
-    }
-    f.read(buf, size);
+  File f = SD_MMC.open(sdPath, FILE_READ);
+  if (!f)
+  {
+    Serial.printf("loadBinToImgDsc: cannot open %s\n", sdPath);
+    return false;
+  }
+  size_t size = f.size();
+  uint8_t *buf = (uint8_t *)ps_malloc(size);
+  if (!buf)
+  {
+    Serial.printf("loadBinToImgDsc: ps_malloc failed (%u bytes)\n", size);
     f.close();
+    return false;
+  }
+  f.read(buf, size);
+  f.close();
 
-    memcpy(&dsc->header, buf, sizeof(lv_img_header_t));
-    dsc->data_size = size - sizeof(lv_img_header_t);
-    dsc->data      = buf + sizeof(lv_img_header_t);
-    Serial.printf("loadBinToImgDsc: %s loaded %ux%u (%u bytes)\n",
-                  sdPath, dsc->header.w, dsc->header.h, size);
-    return true;
+  memcpy(&dsc->header, buf, sizeof(lv_img_header_t));
+  dsc->data_size = size - sizeof(lv_img_header_t);
+  dsc->data = buf + sizeof(lv_img_header_t);
+  Serial.printf("loadBinToImgDsc: %s loaded %ux%u (%u bytes)\n",
+                sdPath, dsc->header.w, dsc->header.h, size);
+  return true;
 }
+
+// --- OTA crash breadcrumb (survives brownout/panic/watchdog resets) ---------
+// Stored in RTC memory so that, even when a fault drops the USB-CDC serial and
+// the live log is lost, the NEXT boot can report exactly how far OTA got.
+RTC_NOINIT_ATTR uint32_t otaBcMagic;
+RTC_NOINIT_ATTR uint32_t otaBcStage;
+#define OTA_BC_MAGIC 0xB0071234u
+// Stage values: 0=idle 1=before WiFi.mode 2=after WiFi.mode 3=in httpUpdate
 
 // --- Config Globals ---
 String config_ssid = "";   // Set at runtime by RS485 "update" command
@@ -134,19 +156,20 @@ unsigned long switchLastTouchTime = 0;
 
 // Page configuration storage
 String pageLabels[MAX_PAGES][MAX_LABELS];
+String pageLabelsOff[MAX_PAGES][MAX_LABELS]; // OFF-state labels for mode-2 buttons
 String pageTemperatures[MAX_PAGES][NUM_SENSORS];
-float  pageSetPoints[MAX_PAGES][NUM_SENSORS];
+float pageSetPoints[MAX_PAGES][NUM_SENSORS];
 String pageRegulatorLabels[MAX_PAGES][NUM_SENSORS];
-int    pageModes[MAX_PAGES][NUM_SENSORS];
-int    pageMins[MAX_PAGES][NUM_SENSORS];
-int    pageMaxs[MAX_PAGES][NUM_SENSORS];
-float  pageNewSetPoints[MAX_PAGES][MAX_LABELS];
-int    pageValueChanged[MAX_PAGES][MAX_LABELS];
-int    pageBtnEn[MAX_PAGES][NUM_SENSORS]; // btnEn state per page, default 0
-bool   pageAvailable[MAX_PAGES];
-int    activePage = 0;
-bool   SELECT_PREV_PAGE = false;
-bool   SELECT_NEXT_PAGE = false;
+int pageModes[MAX_PAGES][NUM_SENSORS];
+int pageMins[MAX_PAGES][NUM_SENSORS];
+int pageMaxs[MAX_PAGES][NUM_SENSORS];
+float pageNewSetPoints[MAX_PAGES][MAX_LABELS];
+int pageValueChanged[MAX_PAGES][MAX_LABELS];
+int pageBtnEn[MAX_PAGES][NUM_SENSORS]; // btnEn state per page, default 0
+bool pageAvailable[MAX_PAGES];
+int activePage = 0;
+bool SELECT_PREV_PAGE = false;
+bool SELECT_NEXT_PAGE = false;
 
 /*  flags*/
 
@@ -257,53 +280,65 @@ static const char *BTNEN_FILE = "/btnEn.json";
 
 static void saveBtnEnToSD()
 {
-    if (SD_MMC.exists(BTNEN_FILE))
-        SD_MMC.remove(BTNEN_FILE);
+  if (SD_MMC.exists(BTNEN_FILE))
+    SD_MMC.remove(BTNEN_FILE);
 
-    File f = SD_MMC.open(BTNEN_FILE, FILE_WRITE);
-    if (!f) { Serial.println("btnEn: cannot open for write"); return; }
+  File f = SD_MMC.open(BTNEN_FILE, FILE_WRITE);
+  if (!f)
+  {
+    Serial.println("btnEn: cannot open for write");
+    return;
+  }
 
-    JsonDocument doc;
-    JsonArray pages = doc["btnEn"].to<JsonArray>();
-    for (int p = 0; p < MAX_PAGES; p++)
-    {
-        JsonArray row = pages.add<JsonArray>();
-        for (int i = 0; i < NUM_SENSORS; i++)
-            row.add(pageBtnEn[p][i]);
-    }
-    serializeJson(doc, f);
-    f.close();
-    Serial.println("btnEn saved to SD");
+  JsonDocument doc;
+  JsonArray pages = doc["btnEn"].to<JsonArray>();
+  for (int p = 0; p < MAX_PAGES; p++)
+  {
+    JsonArray row = pages.add<JsonArray>();
+    for (int i = 0; i < NUM_SENSORS; i++)
+      row.add(pageBtnEn[p][i]);
+  }
+  serializeJson(doc, f);
+  f.close();
+  Serial.println("btnEn saved to SD");
 }
 
 static void loadBtnEnFromSD()
 {
-    // Default: all zero (already zero-initialised as a global)
-    if (!SD_MMC.exists(BTNEN_FILE)) return;
+  // Default: all zero (already zero-initialised as a global)
+  if (!SD_MMC.exists(BTNEN_FILE))
+    return;
 
-    File f = SD_MMC.open(BTNEN_FILE, FILE_READ);
-    if (!f) return;
+  File f = SD_MMC.open(BTNEN_FILE, FILE_READ);
+  if (!f)
+    return;
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, f);
-    f.close();
-    if (err) { Serial.println("btnEn: parse error, using defaults"); return; }
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+  if (err)
+  {
+    Serial.println("btnEn: parse error, using defaults");
+    return;
+  }
 
-    JsonArrayConst pages = doc["btnEn"].as<JsonArrayConst>();
-    int p = 0;
-    for (JsonArrayConst row : pages)
+  JsonArrayConst pages = doc["btnEn"].as<JsonArrayConst>();
+  int p = 0;
+  for (JsonArrayConst row : pages)
+  {
+    if (p >= MAX_PAGES)
+      break;
+    int i = 0;
+    for (int v : row)
     {
-        if (p >= MAX_PAGES) break;
-        int i = 0;
-        for (int v : row)
-        {
-            if (i >= NUM_SENSORS) break;
-            pageBtnEn[p][i] = (v != 0) ? 1 : 0;
-            i++;
-        }
-        p++;
+      if (i >= NUM_SENSORS)
+        break;
+      pageBtnEn[p][i] = (v != 0) ? 1 : 0;
+      i++;
     }
-    Serial.println("btnEn loaded from SD");
+    p++;
+  }
+  Serial.println("btnEn loaded from SD");
 }
 
 // Function to save the backlight value
@@ -378,18 +413,19 @@ void applyPageConfig(int page)
     if (i < MAX_LABELS)
     {
       display.btnLabel[i] = pageLabels[page][i];
-      phomeBtnLabel[i]    = "";
-      newSetPoint[i]      = pageNewSetPoints[page][i];
-      valueChanged[i]     = pageValueChanged[page][i];
+      display.btnLabelOff[i] = pageLabelsOff[page][i];
+      phomeBtnLabel[i] = "";
+      newSetPoint[i] = pageNewSetPoints[page][i];
+      valueChanged[i] = pageValueChanged[page][i];
     }
 
-    display.temperature[i]    = pageTemperatures[page][i];
-    display.setPoint[i]       = pageSetPoints[page][i];
+    display.temperature[i] = pageTemperatures[page][i];
+    display.setPoint[i] = pageSetPoints[page][i];
     display.regulatorLabel[i] = pageRegulatorLabels[page][i];
-    display.mode[i]           = pageModes[page][i];
-    display.min[i]            = pageMins[page][i];
-    display.max[i]            = pageMaxs[page][i];
-    display.btnEn[i]          = pageBtnEn[page][i];
+    display.mode[i] = pageModes[page][i];
+    display.min[i] = pageMins[page][i];
+    display.max[i] = pageMaxs[page][i];
+    display.btnEn[i] = pageBtnEn[page][i];
   }
 }
 
@@ -399,18 +435,19 @@ static void saveActivePageState()
   {
     if (i < MAX_LABELS)
     {
-      pageLabels[activePage][i]        = display.btnLabel[i];
-      pageNewSetPoints[activePage][i]  = newSetPoint[i];
-      pageValueChanged[activePage][i]  = valueChanged[i];
+      pageLabels[activePage][i] = display.btnLabel[i];
+      pageLabelsOff[activePage][i] = display.btnLabelOff[i];
+      pageNewSetPoints[activePage][i] = newSetPoint[i];
+      pageValueChanged[activePage][i] = valueChanged[i];
     }
 
-    pageTemperatures[activePage][i]    = display.temperature[i];
-    pageSetPoints[activePage][i]       = display.setPoint[i];
+    pageTemperatures[activePage][i] = display.temperature[i];
+    pageSetPoints[activePage][i] = display.setPoint[i];
     pageRegulatorLabels[activePage][i] = display.regulatorLabel[i];
-    pageModes[activePage][i]           = display.mode[i];
-    pageMins[activePage][i]            = display.min[i];
-    pageMaxs[activePage][i]            = display.max[i];
-    pageBtnEn[activePage][i]           = display.btnEn[i];
+    pageModes[activePage][i] = display.mode[i];
+    pageMins[activePage][i] = display.min[i];
+    pageMaxs[activePage][i] = display.max[i];
+    pageBtnEn[activePage][i] = display.btnEn[i];
   }
 }
 
@@ -504,6 +541,7 @@ void initializeDataStructures()
       if (j < MAX_LABELS)
       {
         pageLabels[i][j] = "";
+        pageLabelsOff[i][j] = "";
         pageNewSetPoints[i][j] = 0;
         pageValueChanged[i][j] = 0;
       }
@@ -521,7 +559,7 @@ void initializeDataStructures()
   for (int i = 0; i < NUM_SENSORS; i++)
   {
     display.temperature[i] = "";
-    display.setPoint[i] = i;         // Dummy data
+    display.setPoint[i] = i; // Dummy data
     display.regulatorLabel[i] = "schermo:" + String(i);
   }
 }
@@ -587,6 +625,121 @@ void loadConfigFromSD()
   jsonfile.close();
 }
 
+// --- OTA failsafe guard -------------------------------------------------------
+// A one-shot timer that force-reboots the ESP32 from the independent esp_timer
+// task. It is armed BEFORE the WiFi/HTTP calls, so even if loop() gets wedged
+// inside the WiFi stack (or an lvgl lock) and never reaches the normal reboot
+// path, the chip still restarts. This is what guarantees "reboot on failure".
+static esp_timer_handle_t otaGuardTimer = NULL;
+
+static void otaGuardFired(void *arg)
+{
+  // Runs in the esp_timer task — independent of the (possibly stuck) loop task.
+  esp_restart();
+}
+
+static void otaArmGuard(uint32_t seconds)
+{
+  if (otaGuardTimer == NULL)
+  {
+    const esp_timer_create_args_t args = {
+        .callback = &otaGuardFired,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "ota_guard"};
+    esp_timer_create(&args, &otaGuardTimer);
+  }
+  esp_timer_stop(otaGuardTimer); // ignore error if not running
+  esp_timer_start_once(otaGuardTimer, (uint64_t)seconds * 1000000ULL);
+  Serial.printf(">> OTA: failsafe reboot armed (%u s)\n", seconds);
+}
+
+// Append one OTA status line to /ota_status.txt on the SD card so the whole
+// update sequence can be reviewed after a reboot without a serial monitor
+// attached. Best-effort: a failed SD open is ignored (never blocks the OTA).
+static void otaLogToSD(const char *msg)
+{
+  File lf = SD_MMC.open("/ota_status.txt", FILE_APPEND);
+  if (lf)
+  {
+    lf.printf("[%lu ms] %s\n", (unsigned long)millis(), msg);
+    lf.close();
+  }
+}
+
+// Single status popup reused across the whole OTA sequence so the user always
+// sees the current stage (connecting / connected / updating % / error) instead
+// of a stack of separate message boxes.
+static lv_obj_t *otaMbox = NULL;
+
+// Set once the LVGL task and RGB panel are torn down for the update. After that
+// the display is gone, so status updates are serial+SD only (never touch lvgl).
+static bool otaDisplayDown = false;
+
+// Create the popup on first call, then just refresh its text on later calls.
+// Uses a finite lock timeout so a stuck UI can never block the OTA itself.
+static void otaShowStatus(const char *msg)
+{
+  Serial.printf(">> OTA: %s\n", msg);
+  otaLogToSD(msg);
+
+  // Once the panel/LVGL are down (WiFi/OTA phase) there is nothing to draw to.
+  if (otaDisplayDown)
+    return;
+
+  if (lvgl_port_lock(1000))
+  {
+    if (otaMbox == NULL)
+    {
+      // add_close_btn = false: user must not dismiss it mid-update
+      otaMbox = lv_msgbox_create(NULL, "System Update", msg, NULL, false);
+      lv_obj_center(otaMbox);
+    }
+    else
+    {
+      lv_label_set_text(lv_msgbox_get_text(otaMbox), msg);
+    }
+    // NOTE: do NOT call lv_task_handler() here. The dedicated lvgl_port_task
+    // renders the screen; its flush callback blocks on a task notification that
+    // is only delivered to that task. Calling the handler from loop() would
+    // deadlock the OTA. We just update the widget and let the lvgl task draw it.
+    lvgl_port_unlock();
+  }
+  else
+  {
+    Serial.println(">> OTA: (UI lock busy, continuing without popup update)");
+  }
+}
+
+// httpUpdate progress callback: show download percentage (throttled to whole %).
+static void otaProgressCb(int cur, int total)
+{
+  static int lastPct = -1;
+  if (total <= 0)
+    return;
+
+  int pct = (int)((cur * 100L) / total);
+  if (pct == lastPct)
+    return;
+  lastPct = pct;
+
+  char buf[64];
+  snprintf(buf, sizeof(buf), "Updating... %d%%\nDo not turn off.", pct);
+  otaShowStatus(buf);
+}
+
+// Show an error message, wait 1 minute, then reboot the ESP32 so it returns to a
+// clean state on its own instead of staying stuck after a failed/aborted update.
+static void rebootAfterOtaFailure(const char *reason)
+{
+  char buf[80];
+  snprintf(buf, sizeof(buf), "%s.\nRestarting in 60 s...", reason);
+  otaShowStatus(buf);
+
+  delay(60000); // 1 minute
+  ESP.restart();
+}
+
 void performOTAUpdate()
 {
   if (config_ssid == "" || config_otaURL == "")
@@ -599,75 +752,151 @@ void performOTAUpdate()
 
   Serial.println(">> OTA: Initializing...");
 
-  // 1. Update UI to show status (Optional but recommended)
-  if (lvgl_port_lock(-1))
+  // Failsafe: if anything below wedges (WiFi stack, lvgl lock, stalled
+  // download) the chip reboots on its own. 90 s covers the 20 s WiFi connect
+  // attempt plus margin; re-armed to a larger window once the download starts.
+  otaArmGuard(90);
+
+  // 1. Show "connecting" status
+  Serial.printf(">> OTA: Connecting to SSID '%s' (pass len %d)\n",
+                config_ssid.c_str(), config_pass.length());
+  otaShowStatus("Updating firmware...\nScreen will go dark.\nDo NOT power off.");
+
+  // 2. Connect to WiFi.
+  // Minimal, reliable bring-up from WIFI_OFF. Each step is logged so a hang is
+  // pinpointed in the serial output.
+  // WiFi init needs internal (DMA-capable) RAM; log how much is free so we can
+  // see if esp_wifi_init is starving (a silent panic on this 320 KB-RAM board).
+  Serial.printf(">> OTA: free heap=%u  free internal=%u  largest internal block=%u\n",
+                ESP.getFreeHeap(),
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  // Mirror the heap numbers to SD: WiFi.mode() can abort (panic) if the largest
+  // *contiguous* internal block is too small for esp_wifi_init, even when total
+  // free looks fine. This line lands on the card right before the crash point.
   {
-    // Create a temporary label on the active screen
-    lv_obj_t *mbox1 = lv_msgbox_create(NULL, "System Update", "Connecting to WiFi...", NULL, true);
-    lv_obj_center(mbox1);
-    lv_task_handler(); // Force UI update
-    lvgl_port_unlock();
+    char hbuf[96];
+    snprintf(hbuf, sizeof(hbuf),
+             "pre-WiFi heap free_int=%u largest_int_block=%u",
+             heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    otaLogToSD(hbuf);
   }
+  Serial.println(">> OTA: wifi persistent(false)");
+  WiFi.persistent(false);
+  Serial.flush();
 
-  // 2. Connect to WiFi
+  // --- Tear down the display BEFORE any cache-disabling flash work ----------
+  // Root cause of the stage-1 panic (reset_reason=4): esp_wifi_init() reads PHY
+  // calibration data from NVS, which disables the CPU cache. While the RGB
+  // panel runs, its bounce-buffer ISR touches PSRAM and flash-resident code; if
+  // it fires during that window the chip panics. The OTA flash writes later
+  // disable the cache the same way. So stop the renderer and the panel now —
+  // every OTA outcome ends in a reboot, so we never need the display back.
+  Serial.println(">> OTA: stopping LVGL + RGB panel before WiFi/flash work");
+  otaLogToSD("stopping LVGL + RGB panel");
+  delay(800);                 // let the last status frame render first
+  lvgl_port_stop_rendering(); // park the LVGL task (no more panel draws)
+  waveshare_rgb_lcd_deinit(); // stop RGB GDMA + bounce/VSYNC ISR
+  wavesahre_rgb_lcd_bl_off(); // dark screen instead of garbage once DMA stops
+  otaDisplayDown = true;      // further otaShowStatus() = serial + SD only
+  otaLogToSD("display down; entering WiFi.mode()");
+
+  Serial.println(">> OTA: wifi mode(STA)");
+  Serial.flush();
+  otaBcStage = 1; // about to enter WiFi.mode() — the previous crash point
   WiFi.mode(WIFI_STA);
+  otaBcStage = 2; // WiFi.mode() returned
+  Serial.println(">> OTA: wifi begin()");
   WiFi.begin(config_ssid.c_str(), config_pass.c_str());
+  Serial.println(">> OTA: entering status loop");
 
+  const int maxTries = 40; // 40 * 500 ms = 20 s
   int timeout = 0;
-  while (WiFi.status() != WL_CONNECTED)
+  wl_status_t st;
+  while ((st = WiFi.status()) != WL_CONNECTED)
   {
     delay(500);
-    Serial.print(".");
     timeout++;
-    if (timeout > 20)
+    // Log the raw status code so we can tell *why* it isn't connecting.
+    Serial.printf(">> OTA: WiFi status=%d (try %d/%d)\n", st, timeout, maxTries);
+
+    if (timeout >= maxTries)
     {
-      Serial.println("\n>> OTA Error: WiFi Connection Failed");
+      Serial.println(">> OTA Error: WiFi Connection Failed");
       WiFi.disconnect(true);
       WiFi.mode(WIFI_OFF);
-      return;
+      // Show the last status code so the cause is visible on the display too.
+      char buf[64];
+      snprintf(buf, sizeof(buf), "WiFi connection failed (code %d)", st);
+      rebootAfterOtaFailure(buf);
+      return; // Not reached: rebootAfterOtaFailure() restarts the ESP32
     }
   }
+  Serial.printf(">> OTA: WiFi connected, IP %s\n", WiFi.localIP().toString().c_str());
 
-  Serial.println("\n>> WiFi Connected. Starting Update...");
+  // Connected: extend the failsafe to allow the firmware download to finish.
+  otaArmGuard(240);
 
-  // 3. Update UI to show downloading
-  if (lvgl_port_lock(-1))
-  {
-    lv_obj_t *mbox2 = lv_msgbox_create(NULL, "System Update", "Downloading Firmware...\nDo not turn off.", NULL, true);
-    lv_obj_center(mbox2);
-    lv_task_handler();
-    lvgl_port_unlock();
-  }
+  // 3. Connected
+  otaShowStatus("WiFi connected.\nStarting update...");
 
-  // 4. Execute HTTP Update
-  WiFiClient client;
+  // 4. Execute HTTP(S) Update (progress callback updates the popup live)
   httpUpdate.setLedPin(-1);
+  httpUpdate.onProgress(otaProgressCb);
 
   Serial.print(">> OTA URL: ");
   Serial.println(fwURL);
 
-  // This function will Reboot the ESP32 automatically on success
-  t_httpUpdate_return ret = httpUpdate.update(client, fwURL);
+  const bool useTLS = fwURL.startsWith("https://");
 
-  // 5. Handle Errors (If we are still here, it failed)
+  // This function will Reboot the ESP32 automatically on success
+  otaBcStage = 3; // inside httpUpdate (download + flash write)
+  t_httpUpdate_return ret;
+  if (useTLS)
+  {
+    // HTTPS: setInsecure() skips server-certificate validation. Fine on a
+    // trusted LAN; for an untrusted network use setCACert() with the server's
+    // root CA instead. TLS needs ~30-50 KB of internal RAM for its buffers.
+    Serial.println(">> OTA: using TLS (insecure: cert not validated)");
+    otaLogToSD("OTA over HTTPS (setInsecure)");
+    WiFiClientSecure sclient;
+    sclient.setInsecure();
+    ret = httpUpdate.update(sclient, fwURL);
+  }
+  else
+  {
+    WiFiClient client;
+    ret = httpUpdate.update(client, fwURL);
+  }
+  otaBcStage = 0; // update returned (failure path); cleared so next boot is clean
+
+  // 5. Handle Errors (If we are still here, the update did not reboot us -> it failed)
+  // Disconnect and disable WiFi before the reboot.
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
   switch (ret)
   {
   case HTTP_UPDATE_FAILED:
+  {
     Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-    break;
-
-  case HTTP_UPDATE_NO_UPDATES:
-    Serial.println("HTTP_UPDATE_NO_UPDATES");
-    break;
-
-  case HTTP_UPDATE_OK:
-    Serial.println("HTTP_UPDATE_OK");
+    char errbuf[80];
+    snprintf(errbuf, sizeof(errbuf), "Error: %s", httpUpdate.getLastErrorString().c_str());
+    rebootAfterOtaFailure(errbuf);
     break;
   }
 
-  // Disconnect and disable WiFi after a failed update
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
+  case HTTP_UPDATE_NO_UPDATES:
+    Serial.println("HTTP_UPDATE_NO_UPDATES");
+    rebootAfterOtaFailure("No update available");
+    break;
+
+  case HTTP_UPDATE_OK:
+    // On success the library already rebooted; we should never get here.
+    Serial.println("HTTP_UPDATE_OK");
+    break;
+  }
 }
 /**
  * Bind the LVGL Keyboard to ui_PasswText and attach events
@@ -714,13 +943,16 @@ void handleButtonPress()
   case 2: // Boolean toggle on home screen — no page change
   {
     int newEn = (display.btnEn[tButton] == 0) ? 1 : 0;
-    display.btnEn[tButton]          = newEn;
-    pageBtnEn[activePage][tButton]  = newEn;
-    display.setPoint[tButton]       = newEn ? display.max[tButton] : display.min[tButton];
-    newSetPoint[tButton]            = display.setPoint[tButton];
+    display.btnEn[tButton] = newEn;
+    pageBtnEn[activePage][tButton] = newEn;
+    display.setPoint[tButton] = newEn ? display.max[tButton] : display.min[tButton];
+    newSetPoint[tButton] = display.setPoint[tButton];
     valueChanged[tButton] = 1;
     SETPOINT_CHANGED = true;
     UpdateBtnLeds(display);
+    // Instantly switch the button caption to its ON/OFF label without waiting
+    // for the central to round-trip a new label back.
+    UpdateBtnLabels(display, phomeBtnLabel);
     saveBtnEnToSD();
     break;
   }
@@ -1027,6 +1259,25 @@ void setup()
 {
   // 1. Init Serial Communication
   Serial.begin(BAUD_RATE_DEBUG);
+  delay(200);
+
+  // Why did we (re)boot? After a silent USB-CDC reset this is the only way to
+  // tell a brownout / panic / watchdog apart from a normal power-on.
+  esp_reset_reason_t rr = esp_reset_reason();
+  Serial.printf("\n[BOOT] reset reason = %d  (1=POWERON 3=SW 4=PANIC 5=INT_WDT 6=TASK_WDT 7=WDT 9=BROWNOUT)\n", rr);
+  Serial.printf("[BOOT] free heap=%u  free internal=%u\n",
+                ESP.getFreeHeap(), heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+  // If the previous boot died mid-OTA, the breadcrumb survived the reset.
+  uint32_t prevOtaStage = (otaBcMagic == OTA_BC_MAGIC) ? otaBcStage : 0;
+  if (prevOtaStage != 0)
+  {
+    Serial.printf("[BOOT] *** previous boot died during OTA at stage %u "
+                  "(1=before WiFi.mode 2=after WiFi.mode 3=in httpUpdate) ***\n",
+                  prevOtaStage);
+  }
+  otaBcMagic = OTA_BC_MAGIC;
+  otaBcStage = 0;
 
   // Keep WiFi off until an OTA update command arrives over RS485
   WiFi.mode(WIFI_OFF);
@@ -1040,6 +1291,25 @@ void setup()
 
   // 3. Init Hardware
   sd_mmc_init();
+
+  // Persist the boot diagnostic to SD so it survives the USB-CDC drop on reset.
+  // Open /otalog.txt and read it after a crash to see reset reason + OTA stage.
+  {
+    File lf = SD_MMC.open("/otalog.txt", FILE_APPEND);
+    if (lf)
+    {
+      lf.printf("[BOOT] millis=%lu reset_reason=%d prevOtaStage=%u freeInternal=%u\n",
+                (unsigned long)millis(), (int)rr, prevOtaStage,
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+      lf.close();
+      Serial.println("[BOOT] diagnostic appended to /otalog.txt");
+    }
+    else
+    {
+      Serial.println("[BOOT] could not open /otalog.txt for logging");
+    }
+  }
+
   loadBtnEnFromSD();
   loadBinToImgDsc("/home.bin", &home_img_dsc);
   loadBinToImgDsc("/info.bin", &info_img_dsc);
@@ -1055,7 +1325,7 @@ void setup()
   // 5. Init LVGL
   wavesahre_rgb_lcd_bl_on();
   ESP_ERROR_CHECK(lvgl_port_init(panel_handle, tp_handle));
-  lvgl_sd_fs_init();  // Must be after lvgl_port_init() which calls lv_init()
+  lvgl_sd_fs_init(); // Must be after lvgl_port_init() which calls lv_init()
   ESP_LOGI(TAG, "Display LVGL initialized");
 
   // 6. Build UI (Thread Safe)
@@ -1063,6 +1333,9 @@ void setup()
   {
     ui_init();
     force_bind_keyboard_and_events();
+    // Show the real firmware version on the info page (ui_screenInfo defaults
+    // to a hardcoded "FW 1.0.0"); keep it in sync with VERSION from this file.
+    lv_label_set_text_fmt(ui_fwVersion, "FW %s", VERSION);
     lvgl_port_unlock();
   }
 
@@ -1070,8 +1343,6 @@ void setup()
   initializeDataStructures();
   loadConfigFromSD();
   UpdateBtnLabels(display, phomeBtnLabel);
-
-
 
   screenTimeoutTimestamp = millis();
   HANDLE_BUTTON = false;
