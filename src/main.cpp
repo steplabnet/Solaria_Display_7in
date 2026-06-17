@@ -43,12 +43,13 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
+#include <HTTPClient.h>
 #include <SD_MMC.h>
 #include <esp_timer.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 
-#define VERSION "260616e"
+#define VERSION "260616g"
 
 // Log tag for ESP_LOGx macros (compiled in once CORE_DEBUG_LEVEL > 0).
 static const char *TAG = "main";
@@ -98,6 +99,10 @@ RTC_NOINIT_ATTR uint32_t otaBcStage;
 String config_ssid = "";   // Set at runtime by RS485 "update" command
 String config_pass = "";   // Set at runtime by RS485 "update" command
 String config_otaURL = ""; // Set at runtime by RS485 "update" command
+
+// --- "uploadFile" command config (download a remote file onto the SD card) ---
+String config_fileURL = "";  // Full source URL, set by RS485 "uploadFile"
+String config_filePath = ""; // SD destination path (e.g. "/logo.bin")
 
 /* =================================================================================
  *                                  CONSTANTS
@@ -178,6 +183,7 @@ bool BTN_ALWAYS_ON = false;
 bool BTN_PULSANTE_CONTROLLO_REMOTO = false;
 bool NOT_CONTROLLABLE = false;
 bool PERFORM_OTA_UPDATE = false;
+bool PERFORM_FILE_UPLOAD = false;
 bool TRIGGER_RESTART = false;
 bool TRIGGER_COMUNICATION = false;
 
@@ -733,10 +739,10 @@ static void otaProgressCb(int cur, int total)
 static void rebootAfterOtaFailure(const char *reason)
 {
   char buf[80];
-  snprintf(buf, sizeof(buf), "%s.\nRestarting in 60 s...", reason);
+  snprintf(buf, sizeof(buf), "%s.\nRestarting in 20 s...", reason);
   otaShowStatus(buf);
 
-  delay(60000); // 1 minute
+  delay(20000); // 20 seconds
   ESP.restart();
 }
 
@@ -898,6 +904,219 @@ void performOTAUpdate()
     break;
   }
 }
+
+// --- "uploadFile" RS485 command: download a remote file onto the SD card ------
+// Mirrors performOTAUpdate()'s WiFi bring-up, failsafe guard and display
+// teardown, but instead of flashing the firmware it streams the HTTP(S) body
+// into a file on the SD card. Reuses the same otaArmGuard()/otaShowStatus()/
+// otaLogToSD()/rebootAfterOtaFailure() helpers so the on-screen + SD status
+// reporting is identical to OTA. Reboots the display after a successful save.
+void performFileUpload()
+{
+  if (config_ssid == "" || config_fileURL == "" || config_filePath == "")
+  {
+    Serial.println(">> UPLOAD Skipped: Missing WiFi, URL or destination path");
+    return;
+  }
+
+  const String url = config_fileURL;
+  const String destPath = config_filePath;
+  // Download into a temp file first; only rename to the final path once the
+  // whole body is on the card, so a partial download never replaces a good file.
+  const String tmpPath = destPath + ".part";
+
+  Serial.println(">> UPLOAD: Initializing...");
+
+  // Failsafe: reboot if anything below wedges. 90 s covers the 20 s WiFi connect
+  // attempt plus margin; re-armed to a larger window once data starts flowing.
+  otaArmGuard(90);
+
+  Serial.printf(">> UPLOAD: Connecting to SSID '%s' (pass len %d)\n",
+                config_ssid.c_str(), config_pass.length());
+  otaShowStatus("Downloading file...\nScreen will go dark.\nDo NOT power off.");
+
+  WiFi.persistent(false);
+  Serial.flush();
+
+  // Tear down the display BEFORE any WiFi/flash work — same panic root cause as
+  // OTA: esp_wifi_init() disables the CPU cache while the RGB panel ISR touches
+  // PSRAM/flash. We reboot at the end regardless, so the panel is not needed.
+  Serial.println(">> UPLOAD: stopping LVGL + RGB panel before WiFi work");
+  otaLogToSD("UPLOAD: stopping LVGL + RGB panel");
+  delay(800); // let the last status frame render first
+  lvgl_port_stop_rendering();
+  waveshare_rgb_lcd_deinit();
+  wavesahre_rgb_lcd_bl_off();
+  otaDisplayDown = true; // further otaShowStatus() = serial + SD only
+  otaLogToSD("UPLOAD: display down; entering WiFi.mode()");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(config_ssid.c_str(), config_pass.c_str());
+
+  const int maxTries = 40; // 40 * 500 ms = 20 s
+  int timeout = 0;
+  wl_status_t st;
+  while ((st = WiFi.status()) != WL_CONNECTED)
+  {
+    delay(500);
+    timeout++;
+    Serial.printf(">> UPLOAD: WiFi status=%d (try %d/%d)\n", st, timeout, maxTries);
+    if (timeout >= maxTries)
+    {
+      Serial.println(">> UPLOAD Error: WiFi Connection Failed");
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      char buf[64];
+      snprintf(buf, sizeof(buf), "WiFi connection failed (code %d)", st);
+      rebootAfterOtaFailure(buf);
+      return; // Not reached: rebootAfterOtaFailure() restarts the ESP32
+    }
+  }
+  Serial.printf(">> UPLOAD: WiFi connected, IP %s\n", WiFi.localIP().toString().c_str());
+
+  // Connected: extend the failsafe to allow the download to finish.
+  otaArmGuard(240);
+  otaShowStatus("WiFi connected.\nDownloading...");
+
+  Serial.print(">> UPLOAD URL: ");
+  Serial.println(url);
+  Serial.print(">> UPLOAD dest: ");
+  Serial.println(destPath);
+
+  const bool useTLS = url.startsWith("https://");
+  WiFiClientSecure sclient;
+  WiFiClient client;
+  HTTPClient http;
+  bool begun;
+  if (useTLS)
+  {
+    // HTTPS: setInsecure() skips cert validation (fine on a trusted LAN).
+    sclient.setInsecure();
+    begun = http.begin(sclient, url);
+  }
+  else
+  {
+    begun = http.begin(client, url);
+  }
+  if (!begun)
+  {
+    rebootAfterOtaFailure("HTTP begin failed");
+    return;
+  }
+
+  const int code = http.GET();
+  Serial.printf(">> UPLOAD: HTTP GET -> %d\n", code);
+  if (code != HTTP_CODE_OK)
+  {
+    http.end();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    char buf[48];
+    snprintf(buf, sizeof(buf), "HTTP error %d", code);
+    rebootAfterOtaFailure(buf);
+    return;
+  }
+
+  const int total = http.getSize(); // -1 when unknown (chunked transfer)
+
+  SD_MMC.remove(tmpPath);
+  File out = SD_MMC.open(tmpPath, FILE_WRITE);
+  if (!out)
+  {
+    http.end();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    rebootAfterOtaFailure("SD open failed");
+    return;
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t buf[1024];
+  int written = 0;
+  int lastPct = -1;
+  unsigned long lastData = millis();
+  unsigned long lastArm = millis();
+
+  while (http.connected() && (total < 0 || written < total))
+  {
+    size_t avail = stream->available();
+    if (avail)
+    {
+      int n = stream->readBytes(buf, avail > sizeof(buf) ? sizeof(buf) : avail);
+      if (n > 0)
+      {
+        out.write(buf, n);
+        written += n;
+        lastData = millis();
+
+        // Keep the failsafe fed while data flows (throttled to avoid serial
+        // spam / timer churn). Covers chunked transfers too, which have no %.
+        if (millis() - lastArm > 5000)
+        {
+          otaArmGuard(240);
+          lastArm = millis();
+        }
+
+        if (total > 0)
+        {
+          int pct = (int)((written * 100L) / total);
+          if (pct != lastPct)
+          {
+            lastPct = pct;
+            char m[64];
+            snprintf(m, sizeof(m), "Downloading... %d%%\nDo not turn off.", pct);
+            otaShowStatus(m);
+          }
+        }
+      }
+    }
+    else
+    {
+      if (millis() - lastData > 30000) // 30 s with no data => give up
+      {
+        out.close();
+        SD_MMC.remove(tmpPath);
+        http.end();
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        rebootAfterOtaFailure("Download stalled");
+        return;
+      }
+      delay(10);
+    }
+  }
+
+  out.close();
+  http.end();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+
+  if (total > 0 && written < total)
+  {
+    SD_MMC.remove(tmpPath);
+    rebootAfterOtaFailure("Incomplete download");
+    return;
+  }
+
+  // Atomically replace the destination with the freshly downloaded temp file.
+  SD_MMC.remove(destPath);
+  if (!SD_MMC.rename(tmpPath, destPath))
+  {
+    SD_MMC.remove(tmpPath);
+    rebootAfterOtaFailure("SD rename failed");
+    return;
+  }
+
+  Serial.printf(">> UPLOAD: saved %d bytes to %s\n", written, destPath.c_str());
+  char okbuf[80];
+  snprintf(okbuf, sizeof(okbuf), "UPLOAD: success (%d bytes -> %s)",
+           written, destPath.c_str());
+  otaLogToSD(okbuf);
+  otaShowStatus("Download complete.\nRestarting...");
+  delay(1500);
+  ESP.restart();
+}
+
 /**
  * Bind the LVGL Keyboard to ui_PasswText and attach events
  * (Currently manual binding logic goes here)
@@ -1370,6 +1589,11 @@ void loop()
   {
     performOTAUpdate();
     PERFORM_OTA_UPDATE = 0;
+  }
+  if (PERFORM_FILE_UPLOAD)
+  {
+    performFileUpload();
+    PERFORM_FILE_UPLOAD = 0;
   }
   if (BTN_ALWAYS_ON)
   {

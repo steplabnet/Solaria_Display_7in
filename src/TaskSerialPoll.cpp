@@ -86,6 +86,9 @@ extern bool CONFIG_RECEIVED;
 extern bool SETPOINT_CHANGED;
 extern bool PERFORM_OTA_UPDATE;
 extern String config_otaURL;
+extern bool PERFORM_FILE_UPLOAD;
+extern String config_fileURL;
+extern String config_filePath;
 extern String config_ssid;
 extern String config_pass;
 extern bool TRIGGER_COMUNICATION;
@@ -367,6 +370,52 @@ static void handleSystemCommands(const JsonDocument &doc)
             Serial.print("[CMD] OTA update requested: ");
             Serial.println(config_otaURL);
             PERFORM_OTA_UPDATE = 1;
+        }
+    }
+
+    // Download a remote file over HTTP(S) and store it on the SD card. Same
+    // payload shape as "update" — 'filename' is both the source name appended
+    // to 'url' and the SD destination path ("/<filename>"). The display reboots
+    // after a successful download (handled in performFileUpload()).
+    if (doc["command"] == "uploadFile")
+    {
+        String url = doc["url"] | "";
+        String filename = doc["filename"] | "";
+        String ssid = doc["ssid"] | "";
+        String pass = doc["password"] | "";
+
+        if (url == "" || filename == "" || ssid == "" || pass == "")
+        {
+            Serial.println("[CMD] uploadFile ignored: missing 'url', 'filename', 'ssid' or 'password'");
+        }
+        else
+        {
+            config_ssid = ssid;
+            config_pass = pass;
+
+            if (url.endsWith("/"))
+                config_fileURL = url + filename;
+            else
+                config_fileURL = url + "/" + filename;
+
+            // Defensive: tolerate a duplicated scheme in the incoming url
+            // (e.g. "http://http://host"), mirroring the "update" handler.
+            while (config_fileURL.startsWith("http://http://"))
+                config_fileURL.remove(0, 7); // drop one leading "http://"
+            while (config_fileURL.startsWith("https://https://"))
+                config_fileURL.remove(0, 8); // drop one leading "https://"
+
+            // SD destination: store under root using just the file name, so a
+            // path-y 'filename' can't escape to an unintended directory.
+            int slash = filename.lastIndexOf('/');
+            String baseName = (slash >= 0) ? filename.substring(slash + 1) : filename;
+            config_filePath = "/" + baseName;
+
+            Serial.print("[CMD] uploadFile requested: ");
+            Serial.print(config_fileURL);
+            Serial.print(" -> ");
+            Serial.println(config_filePath);
+            PERFORM_FILE_UPLOAD = 1;
         }
     }
 
