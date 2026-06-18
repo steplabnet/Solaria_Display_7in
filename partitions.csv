@@ -1,6 +1,7 @@
 # Name,   Type, SubType, Offset,  Size, Flags
+# 8MB flash layout with two equal OTA app slots (~3.94MB each).
 nvs,      data, nvs,     ,        0x5000,
 otadata,  data, ota,     ,        0x2000,
-app0,     app,  ota_0,   ,        6553600,
-app1,     app,  ota_1,   ,        6553600,
-spiffs,   data, spiffs,  ,        2621440,
+app0,     app,  ota_0,   ,        0x3F0000,
+app1,     app,  ota_1,   ,        0x3F0000,
+spiffs,   data, spiffs,  ,        0x10000,
